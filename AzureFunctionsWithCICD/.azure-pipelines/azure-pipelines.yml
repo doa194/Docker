@@ -1,0 +1,74 @@
+trigger:
+- main
+
+variables:
+  imageName: 'myfuncapp'
+  containerPort: '80'
+
+stages:
+- stage: Build
+  displayName: Build & Test
+  jobs:
+  - job: BuildTest
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '9.x'
+    - script: |
+        cd src/MyFunctionApp
+        dotnet build --configuration Release
+        dotnet test
+      displayName: 'Build and Test .NET Function App'
+
+- stage: DockerBuildPush
+  displayName: Docker Build & Push to ACR
+  dependsOn: Build
+  jobs:
+  - job: Docker
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      inputs:
+        command: 'buildAndPush'
+        repository: '$(ACR_LOGIN_SERVER)/$(imageName)'
+        dockerfile: 'src/MyFunctionApp/Dockerfile'
+        tags: |
+          latest
+          $(Build.BuildId)
+        containerRegistry: '$(ACR_LOGIN_SERVER)'
+      env:
+        DOCKER_BUILDKIT: 1
+
+- stage: DeployACI
+  displayName: Deploy to Azure Container Instance
+  dependsOn: DockerBuildPush
+  jobs:
+  - deployment: DeployACI
+    environment: 'ACI'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: '$(AZURE_CREDENTIALS)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az container create \
+                  --resource-group $(ACI_RESOURCE_GROUP) \
+                  --name $(ACI_CONTAINER_GROUP) \
+                  --image $(ACR_LOGIN_SERVER)/$(imageName):latest \
+                  --registry-login-server $(ACR_LOGIN_SERVER) \
+                  --registry-username $(ACR_USERNAME) \
+                  --registry-password $(ACR_PASSWORD) \
+                  --ports $(containerPort) \
+                  --environment-variables APPINSIGHTS_CONNECTION_STRING=$(APPINSIGHTS_CONNECTION_STRING)
+            displayName: 'Deploy to Azure Container Instances'

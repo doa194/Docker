@@ -1,0 +1,22 @@
+# This file contains alerting rules for Prometheus. It defines various alerts based on metrics collected from containers and nodes. The alerts are categorized into different groups, each with its own set of rules. Each rule specifies the alert name, expression to evaluate, duration for which the condition must be true severity level, and annotations for additional information. The alerts are designed to monitor the health and performance of containers and nodes in the system.
+
+groups:
+  - name: ContainerAlerts
+    rules:
+      - alert: HighContainerCPU
+        expr: sum(rate(container_cpu_usage_seconds_total{container!=""}[1m])) by (container) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Container {{ $labels.container }} is using high CPU."
+
+      - alert: ContainerDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A monitored target is down"
+          description: "Target {{ $labels.instance }} is down."
